@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="//code.jquery.com/jquery-3.3.1.min.js"></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <script type="text/javascript" charset="utf-8">
+        var socket = io.connect('http://' + document.domain + ':' + location.port + '/test');
+        var word_received = ' ';
+        var word_count = 0;
+
+        //receive details from server
+        socket.on('newWord', function(msg) {
+            console.log("Received word" + msg.char);        
+            word_received = msg.char;
+            word_string = '<p>' + word_received.toString() + '</p>';
+            $('#log').html(word_string);
+        });
+        socket.on('result', function(msg) {
+            console.log("Received result" + msg.res);        
+            word_received = msg.char;
+            res_recieved = msg.res;
+            if (res_recieved == 1){
+                style_color = 'mediumseagreen';
+            }
+            else{
+                style_color = 'tomato';
+            }
+            word_string = '<p style="background-color:' + style_color + ';">' + word_received.toString() + '</p>';
+            $('#log').html(word_string);
+        });
+
+    </script>
+
+    <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+
+    <style>
+        #log{
+            font-size:100px;
+            text-align:center;
+            margin:50px auto;
+            font-family:Arial, sans-serif;
+        }
+        /* Split the screen in half */
+        .split {
+          height: 65%;
+          width: 50%;
+          position: fixed;
+          z-index: 1;
+          top: 35%;
+          overflow-x: hidden;
+          padding-top: 20px;
+        }
+
+        /* Control the left side */
+        .left {
+          left: 0;
+        }
+
+        /* Control the right side */
+        .right {
+          right: 0;
+        }
+
+        /* If you want the content centered horizontally and vertically */
+        .centered {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          text-align: center;
+        }
+
+        /* Style the image inside the centered container, if needed */
+        .centered img {
+          width: 300px;
+          border-radius: 25%;
+        } 
+    </style>
+
+</head>
+<body>
+<div class="container">
+  <div class="jumbotron">
+    <h1>Sign Recognition</h1>
+    <p>Random letters generated appear below. New prompts will appear periodically.</p> 
+    <p>They will be marked green if correctly identified, or red if incorrectly identified.</p>
+  </div>
+</div>
+    
+</div>
+
+<div class="container" id="content">
+    <div class="split left">
+        <div class="centered">
+            <h3>Translate the letter:</h3>
+            <div id="log">
+            </div> <!-- /#log -->
+        </div>
+    </div>
+    <div class="split right">
+        <div class="centered">
+            <img src="{{ url_for('video_feed') }}">
+        </div>
+    </div>
+</div>
+
+
+</body>
+</html>

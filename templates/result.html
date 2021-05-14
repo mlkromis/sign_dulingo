@@ -1,0 +1,28 @@
+<html>
+    <head>
+        <style>
+            p {
+                font-size:100px;
+                text-align:center;
+                margin:50px auto;
+                font-family:Arial, sans-serif;
+                background-color:MediumSeaGreen;
+            }
+        </style>
+    </head>
+    <body>
+        { % if result = True % }
+            <p style="background-color:MediumSeaGreen;">
+                {{rand_char}}
+            </p>
+
+        { % else % }
+            <p style="background-color:Tomato;">
+                {{rand_char}}
+            </p> 
+        
+        { % endif % }
+    </body>
+</html>
+
+
