@@ -13,6 +13,7 @@ from model import create_model
 import argparse
 import numpy as np
 import string
+import queue
 
 global prompt, showingResults, persistance, attempts
 prompt = 'a'
@@ -34,10 +35,10 @@ class VideoCamera(object):
         #releasing camera
         self.video.release()
 
-    def get_frame(self):
-        #extracting frames
-        ret, frame = self.video.read()
-        return frame
+    def getFrame(self):
+            #extracting frames
+            ret, frame = self.video.read()
+            return frame
 
 class SignPredictor:
     """
@@ -78,14 +79,12 @@ class SignPredictor:
             return prediction
 
 
-def CyclicSignPredictor(camera, frame, predictor):
+def signPredicton(camera, frame, predictor):
     """
     Generate a sign prompt as well as a model prediction of the captured sign response,
     and emit to a socketio instance (broadcast)
     """
-    topPrediction = '*'
-    pred_2 = '*'
-    pred_3 = '*'
+    topPrediction = ' '
     prediction = predictor.predict(frame)
 
     # Predict letter
@@ -93,39 +92,9 @@ def CyclicSignPredictor(camera, frame, predictor):
 
     # Only display predictions with probabilities greater than 0.5
     if np.max(prediction) >= 0.50:
-
         topPrediction = predictor.label_dict[top_prd]
-        preds_list = np.argsort(prediction)[0]
-        pred_2 = predictor.label_dict[preds_list[-2]]
-        pred_3 = predictor.label_dict[preds_list[-3]]
 
-    height = int(camera.video.get(4) - 20)
-
-    # Annotate image with most probable prediction
-    #org=(width // 2 + 230, height // 2 + 75),
-    cv2.putText(frame, text=topPrediction,
-                org = (50, height), 
-                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                fontScale=6, color=(255, 255, 0),
-                thickness=15, lineType=cv2.LINE_AA)
-    # Annotate image with second most probable prediction (displayed on bottom left)
-    #org=(width // 2 + width // 5 + 40, (360 + 240)),
-    cv2.putText(frame, text=pred_2,
-                org = (200, height), 
-                fontFace=cv2.FONT_HERSHEY_PLAIN,
-                fontScale=4, color=(0, 0, 255),
-                thickness=6, lineType=cv2.LINE_AA)
-    # Annotate image with third probable prediction (displayed on bottom right)
-    #org=(width // 2 + width // 3 + 5, (360 + 240)),
-    cv2.putText(frame, text=pred_3,
-                org = (250,height), 
-                fontFace=cv2.FONT_HERSHEY_PLAIN,
-                fontScale=4, color=(0, 0, 255),
-                thickness=6, lineType=cv2.LINE_AA)
-
-    ret, buffer = cv2.imencode('.jpg', frame)
-    frame = buffer.tobytes()
-    return frame, topPrediction 
+    return topPrediction 
 
 
 def resetPrompt():
@@ -137,7 +106,7 @@ def resetPrompt():
     persistance = 0
     attempts = 0
 
-def PromptHandling(topPrediction, showTime):
+def promptHandling(topPrediction, showTime):
     global prompt, persistance, attempts, showingResults
     resetResult = False
     
@@ -149,7 +118,7 @@ def PromptHandling(topPrediction, showTime):
                 showTime = time()
             else:
                 presistance = persistance + 1
-        elif attempts > 25:
+        elif attempts > 50:
             socketio.emit('result', {'char':prompt,'res': 0},namespace='/test')
             showingResults = True
             showTime = time()
@@ -168,18 +137,37 @@ def PromptHandling(topPrediction, showTime):
     return resetResult, showTime
 
 
-def gen(camera, predictor):
-    #get camera frame
+def CyclicGeneration(camera, predictor, frameQueue, predictionQueue):
     resetResult = True
     showTime = 0
     while True:
-        frame = camera.get_frame()
-        if resetResult == True:
-            resetPrompt()
-        jpeg, topPrediction = CyclicSignPredictor(camera, frame, predictor)
-        resetResult, showTime = PromptHandling(topPrediction, showTime)
+        if not frameQueue.empty():
+            frame = frameQueue.get(True)
+            if resetResult == True:
+                resetPrompt()
+            topPrediction = signPredicton(camera, frame, predictor)
+            predictionQueue.put(topPrediction)
+            resetResult, showTime = promptHandling(topPrediction, showTime)
+
+def getFrames(camera, predictor, frameQueue, predictionQueue):
+    #get camera frame
+    topPrediction = ' '
+    while True:
+        frame = camera.getFrame()
+        frameQueue.put(frame)
+        if not predictionQueue.empty():
+            topPrediction = predictionQueue.get(True)
+
+        # Annotate image with most probable prediction
+        cv2.putText(frame, text=topPrediction,
+                    org = (50,200), 
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=6, color=(255, 255, 0),
+                    thickness=15, lineType=cv2.LINE_AA)
+        ret, buffer = cv2.imencode('.jpg', frame)
+        jpeg = buffer.tobytes()
         yield (b'--frame\r\n'
-           b'Content-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n')  # concat frame one by one and show result
+            b'Content-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n')  # concat frame one by one and show result
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -201,7 +189,16 @@ def test_connect():
 def video_feed():
     camera = VideoCamera()
     predictor = SignPredictor()
-    return Response(gen(camera, predictor),
+    frameQueue = queue.Queue()
+    predictionQueue = queue.Queue()
+    predictionThread = Thread()
+
+    #Start the video thread only if the thread has not been started before.
+    if not predictionThread.is_alive():
+        print("Starting Video Thread")
+        predictionThread = socketio.start_background_task(CyclicGeneration, camera, predictor, frameQueue, predictionQueue)
+
+    return Response(getFrames(camera, predictor, frameQueue, predictionQueue),
                 mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
